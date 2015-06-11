@@ -16,9 +16,6 @@ import theano.sandbox.rng_mrg
 from hinge import multi_hinge_margin
 import plotting
 
-# def norm(x, **kwargs):
-#     return np.sqrt((x**2).sum(**kwargs))
-
 
 def rms(x, **kwargs):
     return np.sqrt((x**2).mean(**kwargs))
@@ -30,8 +27,7 @@ def show_recons(x, z):
 
 
 def sparse_mask(vis_shape, n_hid, rf_shape, rng=np.random):
-    assert isinstance(vis_shape, tuple) and len(vis_shape) == 2
-    assert isinstance(rf_shape, tuple) and len(rf_shape) == 2
+    assert len(vis_shape) == 2 and len(rf_shape) == 2
     M, N = vis_shape
     m, n = rf_shape
     n_vis = M * N
@@ -270,8 +266,8 @@ class Autoencoder(FileObject):
                 plotting.filters(self.filters, rows=10, cols=20)
                 plt.draw()
 
-    def auto_backprop(self, images, deep=None, test_images=None,
-                      noise=1., n_epochs=100):
+    def auto_lbfgs(self, images, deep=None, test_images=None,
+                   noise=1., n_epochs=100):
         assert not hasattr(self, 'V')
 
         dtype = theano.config.floatX
@@ -330,13 +326,15 @@ class Autoencoder(FileObject):
 
 class DeepAutoencoder(object):
 
-    def __init__(self, autos=None):
+    def __init__(self, autos=None, seed=90, loss='hinge'):
         self.autos = autos if autos is not None else []
         self.W = None  # classifier weights
         self.b = None  # classifier biases
 
-        self.seed = 90
+        self.seed = seed
         self.theano_rng = theano.sandbox.rng_mrg.MRG_RandomStreams(seed=self.seed)
+
+        self.loss = loss
 
     def propup(self, images, noise=0):
         codes = images
@@ -349,6 +347,20 @@ class DeepAutoencoder(object):
         for auto in self.autos[::-1]:
             images = auto.propdown(images)
         return images
+
+    def compute_loss(self, yc, y):
+        if self.loss == 'nll':
+            # compute negative log likelihood
+            cost = -tt.mean(tt.log(tt.nnet.softmax(yc))[tt.arange(y.shape[0]), y])
+            error = tt.mean(tt.neq(tt.argmax(yc, axis=1), y))
+        elif self.loss == 'hinge':
+            # compute hinge loss
+            cost = multi_hinge_margin(yc, y).mean()
+            error = tt.mean(tt.neq(tt.argmax(yc, axis=1), y))
+        else:
+            raise ValueError("Unrecognized loss type '%s'" % self.loss)
+
+        return cost, error
 
     @property
     def encode(self):
@@ -372,6 +384,7 @@ class DeepAutoencoder(object):
 
     def auto_sgd(self, images, test_images=None,
                  batch_size=100, rate=0.1, n_epochs=10):
+        """Adjust tied weights to be a better autoencoder"""
         dtype = theano.config.floatX
 
         params = []
@@ -429,6 +442,10 @@ class DeepAutoencoder(object):
 
     def auto_sgd_down(self, images, test_images=None,
                       batch_size=100, rate=0.1, n_epochs=10):
+        """Adjust generative weights to be a better autoencoder
+
+        This should not affect the classification accuracy of the system.
+        """
         dtype = theano.config.floatX
 
         params = []
@@ -504,30 +521,20 @@ class DeepAutoencoder(object):
         W = tt.matrix('W', dtype=dtype)
         b = tt.vector('b', dtype=dtype)
 
+        # compute gradients
+        cost, _ = self.compute_loss(tt.dot(x, W) + b, y)
+        grads = tt.grad(cost, [W, b])
+        f_df = theano.function(
+            [W, b], [cost] + grads,
+            givens={x: codes, y: labels})
+
+        # --- begin backprop
         W0 = np.random.normal(size=Wshape).astype(dtype).flatten() / 10
         b0 = np.zeros(n_labels)
 
         split_p = lambda p: [p[:-n_labels].reshape(Wshape), p[-n_labels:]]
         form_p = lambda params: np.hstack([p.flatten() for p in params])
 
-        # # compute negative log likelihood
-        # p_y_given_x = tt.nnet.softmax(tt.dot(x, W) + b)
-        # y_pred = tt.argmax(p_y_given_x, axis=1)
-        # nll = -tt.mean(tt.log(p_y_given_x)[tt.arange(y.shape[0]), y])
-        # error = tt.mean(tt.neq(y_pred, y))
-
-        # compute hinge loss
-        yc = tt.dot(x, W) + b
-        cost = multi_hinge_margin(yc, y).mean()
-        error = cost
-
-        # compute gradients
-        grads = tt.grad(cost, [W, b])
-        f_df = theano.function(
-            [W, b], [error] + grads,
-            givens={x: codes, y: labels})
-
-        # --- begin backprop
         def f_df_wrapper(p):
             w, b = split_p(p)
             outs = f_df(w.astype(dtype), b.astype(dtype))
@@ -540,7 +547,7 @@ class DeepAutoencoder(object):
 
         self.W, self.b = split_p(p_opt)
 
-    def backprop(self, train_set, test_set, noise=0, shift=False, n_epochs=30):
+    def lbfgs(self, train_set, test_set, noise=0, shift=False, n_epochs=30):
         dtype = theano.config.floatX
 
         params = []
@@ -555,21 +562,13 @@ class DeepAutoencoder(object):
         x = tt.matrix('batch')
         y = tt.ivector('labels')
 
-        # compute coding error
-        # p_y_given_x = tt.nnet.softmax(tt.dot(self.propup(x), W) + b)
-        # y_pred = tt.argmax(p_y_given_x, axis=1)
-        # nll = -tt.mean(tt.log(p_y_given_x)[tt.arange(y.shape[0]), y])
-        # error = tt.mean(tt.neq(y_pred, y))
-
         # compute classification error
         yn = self.propup(x, noise=noise)
-        yc = tt.dot(yn, W) + b
-        cost = multi_hinge_margin(yc, y).mean()
-        error = tt.mean(tt.neq(tt.argmax(yc, axis=1), y))
+        cost, _ = self.compute_loss(tt.dot(yn, W) + b, y)
 
         # compute gradients
         grads = tt.grad(cost, params)
-        f_df = theano.function([x, y], [error] + grads)
+        f_df = theano.function([x, y], [cost] + grads)
 
         np_params = [param.get_value() for param in params]
 
@@ -618,17 +617,7 @@ class DeepAutoencoder(object):
         xn = x
         # xn = x + self.theano_rng.normal(size=x.shape, std=0.1, dtype=dtype)
         yn = self.propup(xn, noise=noise)
-
-        # compute classification error
-
-        # p_y_given_x = tt.nnet.softmax(tt.dot(yn, W) + b)
-        # y_pred = tt.argmax(p_y_given_x, axis=1)
-        # nll = -tt.mean(tt.log(p_y_given_x)[tt.arange(y.shape[0]), y])
-        # class_error = tt.mean(tt.neq(y_pred, y))
-
-        yc = tt.dot(yn, W) + b
-        class_cost = multi_hinge_margin(yc, y).mean()
-        class_error = tt.mean(tt.neq(tt.argmax(yc, axis=1), y))
+        class_cost, class_error = self.compute_loss(tt.dot(yn, W) + b, y)
 
         # compute autoencoder error
         z = self.propdown(yn)
@@ -654,11 +643,6 @@ class DeepAutoencoder(object):
         reconstruct = self.reconstruct
 
         # --- perform SGD
-        # images, labels = train_set
-        # ibatches = images.reshape(-1, batch_size, images.shape[1])
-        # lbatches = labels.reshape(-1, batch_size).astype('int32')
-        # assert np.isfinite(ibatches).all()
-
         train_images, train_labels = train_set
         train_labels = train_labels.astype('int32')
         test_images, test_labels = test_set
@@ -677,7 +661,7 @@ class DeepAutoencoder(object):
             self.W = W.get_value()
             self.b = b.get_value()
 
-            print "Epoch %d: %0.3f" % (epoch, np.mean(costs))
+            print "Epoch %d: %0.4f" % (epoch, np.mean(costs))
 
             if test_images is not None:
                 # plot reconstructions on test set

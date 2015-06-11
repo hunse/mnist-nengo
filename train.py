@@ -18,9 +18,10 @@ from autoencoder import (
 SPAUN = False
 results_dir = 'results-spaun' if SPAUN else 'results-lif'
 
-# plt.ion()
+plt.ion()
 
-def nlif(x):
+# --- define our rate neuron model
+def softlif(x):
     dtype = theano.config.floatX
     sigma = tt.cast(0.01, dtype=dtype)
     tau_ref = tt.cast(0.002, dtype=dtype)
@@ -48,7 +49,7 @@ for images in [train_images, valid_images, test_images]:
 
 # --- pretrain with SGD backprop
 shapes = [(28, 28), 500, 200]
-funcs = [None, nlif, nlif]
+funcs = [None, softlif, softlif]
 rf_shapes = [(9, 9), None]
 rates = [1., 1.]
 # rates = [0.05, 0.05]
@@ -101,16 +102,7 @@ else:
 print "mean error", deep.test(test).mean()
 
 # --- train with backprop
-# deep.backprop(train, test, n_epochs=100)
-# deep.sgd(train, test, n_epochs=50)
-
-# deep.sgd(train, test, n_epochs=5, noise=0.5, shift=True)
-# deep.backprop(train, test, n_epochs=50, noise=0.5, shift=True)
-
-deep.sgd(train, test, n_epochs=50, tradeoff=1, noise=0.3, shift=True)
-print "mean error", deep.test(test).mean()
-
-# deep.backprop(train, test, n_epochs=50, noise=0.5, shift=True)
+deep.sgd(train, test, n_epochs=150, tradeoff=1, noise=0.3, shift=True)
 print "mean error", deep.test(test).mean()
 
 # --- save parameters
@@ -123,5 +115,3 @@ if all(hasattr(auto, 'V') for auto in deep.autos):
 d['Wc'] = deep.W
 d['bc'] = deep.b
 np.savez(results_dir + '/params.npz', **d)
-
-plt.show()
