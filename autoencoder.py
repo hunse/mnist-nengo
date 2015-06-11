@@ -266,63 +266,6 @@ class Autoencoder(FileObject):
                 plotting.filters(self.filters, rows=10, cols=20)
                 plt.draw()
 
-    def auto_lbfgs(self, images, deep=None, test_images=None,
-                   noise=1., n_epochs=100):
-        assert not hasattr(self, 'V')
-
-        dtype = theano.config.floatX
-        params = [self.W, self.c, self.b]
-
-        # --- compute backprop function
-        x = theano.shared(images, name='images')
-        xn = x + self.theano_rng.normal(size=x.shape, std=noise, dtype=dtype)
-        y = self.propup(xn)
-        z = self.propdown(y)
-
-        # compute coding error
-        rmses = tt.sqrt(tt.mean((x - z)**2, axis=1))
-        error = tt.mean(rmses)
-
-        # compute gradients
-        grads = tt.grad(error, params)
-        f_df = theano.function([], [error] + grads)
-
-        np_params = [param.get_value() for param in params]
-        reconstruct = deep.reconstruct if deep is not None else None
-
-        # --- run L_BFGS
-        def f_df_wrapper(p):
-            for param, value in zip(params, split_params(p, np_params)):
-                param.set_value(value.astype(param.dtype))
-
-            outs = f_df()
-            cost, grads = outs[0], outs[1:]
-            grad = join_params(grads)
-
-            if deep is not None and test_images is not None:
-                # plot reconstructions on test set
-                plt.figure(2)
-                plt.clf()
-                recons = reconstruct(test_images)
-                show_recons(test_images, recons)
-                plt.draw()
-
-            # plot filters for first layer only
-            if deep is not None and self is deep.autos[0]:
-                plt.figure(3)
-                plt.clf()
-                plotting.filters(self.filters, rows=10, cols=20)
-                plt.draw()
-
-            return cost.astype('float64'), grad.astype('float64')
-
-        p0 = join_params(np_params)
-        p_opt, mincost, info = scipy.optimize.lbfgsb.fmin_l_bfgs_b(
-            f_df_wrapper, p0, maxfun=100, iprint=1)
-
-        for param, value in zip(params, split_params(p_opt, np_params)):
-            param.set_value(value.astype(param.dtype), borrow=False)
-
 
 class DeepAutoencoder(object):
 
@@ -547,7 +490,7 @@ class DeepAutoencoder(object):
 
         self.W, self.b = split_p(p_opt)
 
-    def lbfgs(self, train_set, test_set, noise=0, shift=False, n_epochs=30):
+    def lbfgs(self, train_set, test_set, shift=False, n_epochs=30):
         dtype = theano.config.floatX
 
         params = []
@@ -563,7 +506,7 @@ class DeepAutoencoder(object):
         y = tt.ivector('labels')
 
         # compute classification error
-        yn = self.propup(x, noise=noise)
+        yn = self.propup(x)
         cost, _ = self.compute_loss(tt.dot(yn, W) + b, y)
 
         # compute gradients
