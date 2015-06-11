@@ -11,6 +11,7 @@ import theano
 import theano.tensor as tt
 
 import mnist
+import neurons
 import plotting
 from autoencoder import (
     rms, show_recons, FileObject, Autoencoder, DeepAutoencoder)
@@ -21,23 +22,11 @@ results_dir = 'results-spaun' if SPAUN else 'results-lif'
 plt.ion()
 
 # --- define our rate neuron model
-def softlif(x):
-    dtype = theano.config.floatX
-    sigma = tt.cast(0.01, dtype=dtype)
-    tau_ref = tt.cast(0.002, dtype=dtype)
-    tau_rc = tt.cast(0.02, dtype=dtype)
-    alpha = tt.cast(1, dtype=dtype)
-    beta = tt.cast(1, dtype=dtype)  # so that f(0) = firing threshold
-    amp = tt.cast(1. / 63.04, dtype=dtype)  # so that f(1) = 1
-
-    j = alpha * x + beta - 1
-    j = sigma * tt.log1p(tt.exp(j / sigma))
-    v = amp / (tau_ref + tau_rc * tt.log1p(1. / j))
-    return tt.switch(j > 0, v, 0.0)
-
+neuron = ('softlif', dict(
+    sigma=0.01, tau_rc=0.02, tau_ref=0.002, gain=1, bias=1, amp=1. / 63.04))
+neuron_fn = neurons.get_theano_fn(*neuron)
 
 # --- load the data
-# train, valid, test = mnist.load()
 train, valid, test = mnist.augment() if SPAUN else mnist.load()
 train_images, _ = train
 valid_images, _ = valid
@@ -49,7 +38,7 @@ for images in [train_images, valid_images, test_images]:
 
 # --- pretrain with SGD backprop
 shapes = [(28, 28), 500, 200]
-funcs = [None, softlif, softlif]
+funcs = [None, neuron_fn, neuron_fn]
 rf_shapes = [(9, 9), None]
 rates = [1., 1.]
 # rates = [0.05, 0.05]

@@ -60,3 +60,5 @@ target/
 *.pkl.gz
 *.npy
 *.npz
+*.pdf
+*.png
