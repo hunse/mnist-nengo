@@ -25,6 +25,9 @@ You can also get some information about static trained networks with
 
     python view.py params_file.npz
 
+You can also run any of the above scripts with the `--help` argument to get
+a full list of arguments.
+
 ## Requirements
 This project requires Nengo, and additionally Theano and Scipy if you
 want to train your own networks. Both should be installable from `pip`,

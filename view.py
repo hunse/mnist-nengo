@@ -148,7 +148,8 @@ if __name__ == '__main__':
     # --- arguments
     parser = argparse.ArgumentParser(
         description="View network or spiking network results")
-    parser.add_argument('--spaun', action='store_true')
+    parser.add_argument('--spaun', action='store_true',
+                        help="Test with augmented dataset for Spaun")
     parser.add_argument('loadfile', help="Parameter file to load")
     args = parser.parse_args()
 

@@ -18,8 +18,10 @@ urls = {
 # --- arguments
 parser = argparse.ArgumentParser(description="Run network in spiking neurons")
 parser.add_argument('--gui', action='store_true', help="Run in the GUI")
-parser.add_argument('--spaun', action='store_true')
-parser.add_argument('--presentations', type=float, default=20)
+parser.add_argument('--spaun', action='store_true',
+                    help="Test with augmented dataset for Spaun")
+parser.add_argument('--presentations', type=float, default=20,
+                    help="Number of digits to present to the model")
 parser.add_argument('loadfile', help="Parameter file to load")
 parser.add_argument('savefile', nargs='?', default=None, help="Where to save output")
 args = parser.parse_args()
