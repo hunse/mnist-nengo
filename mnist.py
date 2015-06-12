@@ -15,6 +15,7 @@ def read_file(filepath):
     if not os.path.exists(filepath):
         if filepath in urls:
             urllib.urlretrieve(urls[filepath], filename=filepath)
+            print("Fetched '%s' to '%s'" % (urls[filepath], filepath))
         else:
             raise NotImplementedError(
                 "I do not know where to find '%s'" % filepath)

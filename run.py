@@ -3,6 +3,7 @@ from __future__ import print_function
 import argparse
 import os
 import sys
+import urllib
 
 import nengo
 import numpy as np
@@ -43,6 +44,8 @@ def test_classifier(t, dots):
 # --- load the RBM data
 if not os.path.exists(args.loadfile) and args.loadfile in urls:
     urllib.urlretrieve(urls[args.loadfile], args.loadfile)
+    print("Fetched '%s' to '%s'" % (urls[args.loadfile], args.loadfile))
+
 if os.path.exists(args.loadfile):
     data = np.load(args.loadfile)
     weights = data['weights']
