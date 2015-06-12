@@ -6,24 +6,20 @@ import os
 import nengo
 import numpy as np
 import matplotlib.pyplot as plt
-plt.ion()
 
 import mnist
 import neurons
 
 
-def _propup_static(params, images, kind='lif'):
+def _propup_static(params, images, neuron):
     weights = params['weights']
     biases = params['biases']
     Wc = params['Wc']
     bc = params['bc']
     n_classifier = bc.size
 
-    neuron_params = dict(
-        sigma=0.01, tau_rc=0.02, tau_ref=0.002, gain=1, bias=1, amp=1. / 63.04)
-    if kind != 'softlif':
-        neuron_params.pop('sigma')
-    neuron_fn = neurons.get_numpy_fn(kind, neuron_params)
+    neuron_name, neuron_params = neuron
+    neuron_fn = neurons.get_numpy_fn(neuron_name, neuron_params)
 
     def forward(x, weights, biases):
         layers = []
@@ -37,16 +33,16 @@ def _propup_static(params, images, kind='lif'):
     return layers, codes, yc
 
 
-def compute_static_error(params, images, labels, kind='lif'):
-    layers, codes, yc = _propup_static(params, images, kind=kind)
+def compute_static_error(params, images, labels, neuron):
+    layers, codes, yc = _propup_static(params, images, neuron)
     inds = np.argmax(yc, axis=1)
     classes = np.unique(labels)
     errors = (labels != classes[inds])
     return errors
 
 
-def view_static(params, images, labels, kind='lif'):
-    layers, codes, yc = _propup_static(params, images, kind=kind)
+def view_static(params, images, labels, neuron):
+    layers, codes, yc = _propup_static(params, images, neuron)
 
     for i, layer in enumerate(layers):
         print("Layer %d: mean=%0.3f; sparsity=%0.3f (>0), %0.3f (>1)" % (
@@ -56,7 +52,6 @@ def view_static(params, images, labels, kind='lif'):
         yc.mean(), yc.std(0).mean(), yc.min(), yc.max()))
 
     plt.figure()
-    # plt.clf()
     r = len(layers)
     for i, layer in enumerate(layers):
         plt.subplot(r, 1, i+1)
@@ -101,13 +96,13 @@ def view_spiking(t, images, labels, classifier, test, pres_time, max_pres=20,
     t = t[tmask]
     classifier = classifier[tmask]
     test = test[tmask]
+    layers = [layer[tmask] for layer in layers]
 
     allimage = np.zeros((28, 28 * len(images)), dtype=images.dtype)
     for i, image in enumerate(images):
         allimage[:, i * 28:(i + 1) * 28] = image.reshape(28, 28)
 
     plt.figure()
-    # plt.clf()
     r, c = 3 + len(layers), 1
     i = np.array([0])
     def next_subplot():
@@ -153,7 +148,7 @@ if __name__ == '__main__':
     # --- arguments
     parser = argparse.ArgumentParser(
         description="View network or spiking network results")
-    parser.add_argument('--augment', action='store_true')
+    parser.add_argument('--spaun', action='store_true')
     parser.add_argument('loadfile', help="Parameter file to load")
     args = parser.parse_args()
 
@@ -163,24 +158,29 @@ if __name__ == '__main__':
     data = np.load(args.loadfile)
     if all(a in data for a in ['weights', 'biases', 'Wc', 'bc']):
         # Static network params file
+        if 'neuron' in data:
+            _, neuron_params = data['neuron']
+        else:
+            neuron_params = dict(sigma=0.01, tau_rc=0.02, tau_ref=0.002,
+                                 gain=1, bias=1, amp=1. / 63.04)
 
         # --- load the testing data
-        _, _, [images, labels] = (
-            mnist.augment() if args.augment else mnist.load())
-
-        images -= images.mean(axis=0, keepdims=True)
-        images /= np.maximum(images.std(axis=0, keepdims=True), 3e-1)
+        _, _, [images, labels] = mnist.load(
+            normalize=True, shuffle=True, spaun=args.spaun)
         assert np.unique(labels).size == data['bc'].size
 
         # --- compute the error
-        errors = compute_static_error(data, images, labels, kind='softlif')
+        neuron = ('softlif', dict(neuron_params))
+        errors = compute_static_error(data, images, labels, neuron)
         print("----- Static network with softlif -----")
         print("Static error: %0.2f%%" % (100 * errors.mean()))
 
-        errors = compute_static_error(data, images, labels, kind='lif')
+        neuron = ('lif', dict(neuron_params))
+        neuron[1].pop('sigma')
+        errors = compute_static_error(data, images, labels, neuron)
         print("----- Static network with lif -----")
         print("Static error: %0.2f%%" % (100 * errors.mean()))
-        view_static(data, images, labels, kind='lif')
+        view_static(data, images, labels, neuron)
 
     elif all(a in data for a in ['t', 'classifier', 'test']):
         # Spiking run record file

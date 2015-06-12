@@ -6,8 +6,6 @@ import sys
 
 import nengo
 import numpy as np
-import matplotlib.pyplot as plt
-plt.ion()
 
 import mnist
 
@@ -19,7 +17,7 @@ urls = {
 # --- arguments
 parser = argparse.ArgumentParser(description="Run network in spiking neurons")
 parser.add_argument('--gui', action='store_true', help="Run in the GUI")
-parser.add_argument('--augment', action='store_true')
+parser.add_argument('--spaun', action='store_true')
 parser.add_argument('--presentations', type=float, default=20)
 parser.add_argument('loadfile', help="Parameter file to load")
 parser.add_argument('savefile', nargs='?', default=None, help="Where to save output")
@@ -51,35 +49,34 @@ if os.path.exists(args.loadfile):
     biases = data['biases']
     Wc = data['Wc']
     bc = data['bc']
+    if 'neuron' in data:
+        neuron = data['neuron']
+    else:
+        neuron = ('softlif', dict(sigma=0.01, tau_rc=0.02, tau_ref=0.002,
+                                  gain=1, bias=1, amp=1. / 63.04))
     n_classifier = bc.size
-    print("Loaded %s classifier" % str([len(b) for b in biases] + [len(bc)]))
+    sizes = [weights[0].shape[0]] + [len(b) for b in biases] + [len(bc)]
+    print("Loaded %s %s network" % (sizes, neuron[0]))
 else:
     raise ValueError("Cannot find or download '%s'" % args.loadfile)
 
 # --- load the testing data
-_, _, [images, labels] = (
-    mnist.augment() if args.augment else mnist.load())
-
-images -= images.mean(axis=0, keepdims=True)
-images /= np.maximum(images.std(axis=0, keepdims=True), 3e-1)
-
-# shuffle
-rng = np.random.RandomState(92)
-inds = rng.permutation(len(images))[:n_pres]
-images = images[inds]
-labels = labels[inds]
-n_test = len(images)
+_, _, [images, labels] = mnist.load(
+    normalize=True, shuffle=True, spaun=args.spaun)
 
 classes = np.unique(labels)
-n_classes = classes.size
-assert n_classes == n_classifier
+assert classes.size == n_classifier
 
 # --- create the model
-neuron_type = nengo.LIF(tau_rc=0.02, tau_ref=0.002)
-max_rate = np.array(63.04)
-intercept = np.array(0)
-amp = 1. / max_rate
-assert np.allclose(neuron_type.gain_bias(max_rate, intercept), (1, 1), atol=1e-2)
+neuron_name, neuron_params = neuron
+if neuron_name in ['softlif', 'lif']:
+    if neuron_name == 'softlif':
+        print("Running 'softlif' as 'lif'")
+    tau_rc, tau_ref, gain, bias, amp = [
+        neuron_params[k] for k in ['tau_rc', 'tau_ref', 'gain', 'bias', 'amp']]
+    neuron_type = nengo.LIF(tau_rc=tau_rc, tau_ref=tau_ref)
+else:
+    raise ValueError("Unrecognized neuron '%s'" % neuron_name)
 
 model = nengo.Network(seed=97)
 with model:
@@ -88,12 +85,13 @@ with model:
     # --- make nonlinear layers
     layers = []
     for i, [W, b] in enumerate(zip(weights, biases)):
-        n = b.size
-        layer = nengo.Ensemble(
-            n, 1, label='layer %d' % i, neuron_type=neuron_type,
-            max_rates=max_rate*np.ones(n), intercepts=intercept*np.ones(n))
-        bias = nengo.Node(output=b, label='bias %d' % i)
-        nengo.Connection(bias, layer.neurons, synapse=None)
+        layer = nengo.Ensemble(b.size, 1, label='layer %d' % i)
+        layer.neuron_type = neuron_type
+        layer.gain = nengo.dists.Choice([gain])
+        layer.bias = nengo.dists.Choice([bias])
+
+        layer_bias = nengo.Node(output=b, label='bias %d' % i)
+        nengo.Connection(layer_bias, layer.neurons, synapse=None)
 
         if i == 0:
             nengo.Connection(input_images, layer.neurons,
