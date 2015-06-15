@@ -10,6 +10,44 @@ def softrelu(x, sigma=1.):
     return z
 
 
+def lif_j(j, tau_rc, tau_ref, amp):
+    r = np.zeros_like(j)
+    r[j > 0] = amp / (tau_ref + tau_rc * np.log1p(1. / j[j > 0]))
+    return r
+
+
+def lif(x, tau_rc, tau_ref, gain, bias, amp):
+    j = gain * x + bias - 1
+    return lif_j(gain * x + bias - 1, tau_rc, tau_ref, amp)
+
+
+def d_lif(x, tau_rc, tau_ref, gain, bias, amp):
+    j = gain * x + bias - 1
+    r = lif_j(j, tau_rc, tau_ref, amp)
+
+    d = np.zeros_like(j)
+    rr, jj = r[j > 0], j[j > 0]
+    d[j > 0] = gain * tau_rc * rr * rr / (amp * jj * (jj + 1))
+    return d
+
+
+def softlif(x, sigma, tau_rc, tau_ref, gain, bias, amp):
+    j = softrelu(gain * x + bias - 1, sigma=sigma)
+    return lif_j(j, tau_rc, tau_ref, amp)
+
+
+def d_softlif(x, sigma, tau_rc, tau_ref, gain, bias, amp):
+    y = gain * x + bias - 1
+    j = softrelu(y, sigma=sigma)
+    r = lif_j(j, tau_rc, tau_ref, amp)
+
+    d = np.zeros_like(j)
+    rr, jj, yy = r[j > 0], j[j > 0], y[j > 0]
+    d[j > 0] = (gain * tau_rc * rr * rr) / (
+        amp * jj * (jj + 1) * (1 + np.exp(-yy / sigma)))
+    return d
+
+
 class SoftLIFRate(nengo.neurons.LIFRate):
     sigma = nengo.params.NumberParam(low=0)
 
@@ -69,6 +107,15 @@ def get_numpy_fn(kind, params):
             tau_rc=params['tau_rc'], tau_ref=params['tau_ref'], sigma=params['sigma'])
         return lambda x: (
             softlif.rates(x, params['gain'], params['bias']) * params['amp'])
+    else:
+        raise ValueError("Unknown neuron type '%s'" % kind)
+
+
+def get_numpy_deriv(kind, params):
+    if kind == 'lif':
+        return lambda x: d_lif(x, **params)
+    elif kind == 'softlif':
+        return lambda x: d_softlif(x, **params)
     else:
         raise ValueError("Unknown neuron type '%s'" % kind)
 
