@@ -20,6 +20,8 @@ parser = argparse.ArgumentParser(description="Run network in spiking neurons")
 parser.add_argument('--gui', action='store_true', help="Run in the GUI")
 parser.add_argument('--spaun', action='store_true',
                     help="Test with augmented dataset for Spaun")
+parser.add_argument('--sizes', action='store_true',
+                    help="Compute network sizes")
 parser.add_argument('--presentations', type=float, default=20,
                     help="Number of digits to present to the model")
 parser.add_argument('loadfile', help="Parameter file to load")
@@ -117,6 +119,13 @@ with model:
 
     test = nengo.Node(output=test_classifier, size_in=n_classifier)
     nengo.Connection(class_layer.output, test)
+
+# --- stats
+if args.sizes:
+    print("%10s:%10s%10s%10s" % ("", "neurons", "synapses", "full"))
+    for i, [W, b] in enumerate(zip(weights, biases)):
+        print("%10s:%10d%10d%10d" % (
+            "Layer %d" % (i+1), b.size, (W != 0).sum(), W.size))
 
 # --- simulation
 if args.gui:

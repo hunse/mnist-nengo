@@ -81,7 +81,14 @@ def compute_spiking_error(t, test, pres_time, check_time=0.05, cutoff=0.5):
 def view_spiking(t, images, labels, classifier, test, pres_time, max_pres=20,
                  layers=[], savefile=None):
     from nengo.utils.matplotlib import rasterplot
+    dt = float(t[1] - t[0])
 
+    # --- compute statistics on whole data
+    for i, layer in enumerate(layers):
+        rate = (layer > 0).mean() / dt
+        print("Layer %d: %0.3f spikes / neuron / s" % (i+1, rate))
+
+    # --- plots for partial data
     def plot_bars():
         ylim = plt.ylim()
         for x in np.arange(0, t[-1], pres_time):
@@ -104,8 +111,7 @@ def view_spiking(t, images, labels, classifier, test, pres_time, max_pres=20,
 
     plt.figure()
     r, c = 3 + len(layers), 1
-    i = np.array([0])
-    def next_subplot():
+    def next_subplot(i=np.array([0])):
         i[:] += 1
         return plt.subplot(r, c, i)
 
@@ -115,14 +121,16 @@ def view_spiking(t, images, labels, classifier, test, pres_time, max_pres=20,
     plt.yticks([])
 
     max_neurons = 200
-    for layer in layers:
+    for i, layer in enumerate(layers):
+        n_neurons = layer.shape[1]
         next_subplot()
-        if layer.shape[1] > max_neurons:
+        if n_neurons > max_neurons:
             layer = layer[:, :max_neurons]
         rasterplot(t, layer)
         plot_bars()
         plt.xticks([])
-        plt.ylabel('layer 1 (500)')
+        plt.ylabel('layer %d (%d)' % (i+1, n_neurons))
+
 
     next_subplot()
     plt.plot(t, classifier)
@@ -194,3 +202,5 @@ if __name__ == '__main__':
         args = dict((a, data[a]) for a in [
             't', 'images', 'labels', 'classifier', 'test', 'pres_time'])
         view_spiking(**args)
+    else:
+        raise ValueError("Unrecognized load file type")
